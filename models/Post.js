@@ -1,12 +1,11 @@
 
 class Post {
-  constructor(id, user, content, imageUrl = null, likes = 0) {
+  constructor(id, user, content, imageUrl = null) {
     var date = new Date()
     this.id = id;
     this.user = user;
     this.content = content;
     this.imageUrl = imageUrl;
-    this.likes = likes;
     this.createdAt = date;
     this.updatedAt = date;
     this.deleted = false;
