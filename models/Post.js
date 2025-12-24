@@ -20,10 +20,15 @@ for (let i = 1; i <= 100; i++) {
       i,
       `User_${i}`,
       `This is post number ${i}`,
-      i % 5 === 0 ? `fake image url` : null,
-      Math.floor(Math.random() * 100)
+      `fake image url`
     )
   );
+}
+const tenDaysFromNow = new Date();
+tenDaysFromNow.setDate(tenDaysFromNow.getDate() + 10);
+
+for (let i = 0; i < 10; i++) {
+  posts[i].updatedAt = new Date(tenDaysFromNow);
 }
 
 module.exports = { Post, posts };
