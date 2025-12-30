@@ -1,6 +1,6 @@
 
 class Post {
-  constructor(id, user, content, imageUrl = null) {
+  constructor(id, user, content, imageUrl = null, version) {
     var date = new Date()
     this.id = id;
     this.user = user;
@@ -9,7 +9,14 @@ class Post {
     this.createdAt = date;
     this.updatedAt = date;
     this.deleted = false;
+    this.version = GLOBAL_VERSION;
   }
+}
+let GLOBAL_VERSION = 1;
+let NEXT_ID = 1;
+
+function getPostsVersion() {
+  return ++GLOBAL_VERSION;
 }
 
 const posts = [];
@@ -26,9 +33,10 @@ for (let i = 1; i <= 100; i++) {
 }
 const tenDaysFromNow = new Date();
 tenDaysFromNow.setDate(tenDaysFromNow.getDate() + 10);
-
+let newVersion = getPostsVersion()
 for (let i = 0; i < 10; i++) {
-  posts[i].updatedAt = new Date(tenDaysFromNow);
+  posts[i].version = newVersion;
 }
 
-module.exports = { Post, posts };
+
+module.exports = { Post, posts, getPostsVersion };
