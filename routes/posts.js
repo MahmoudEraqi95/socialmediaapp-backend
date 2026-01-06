@@ -1,7 +1,7 @@
 // routes/posts.js
 const express = require('express');
 const router = express.Router();
-const { Post, posts, getPostsVersion } = require('../models/Post');
+const { Post, posts, getPostsVersion, GLOBAL_POST_VERSION } = require('../models/Post');
 
 // --------------------------------------------------
 // Global version + ID counters (in-memory)
@@ -22,7 +22,11 @@ router.get('/', (req, res) => {
 router.get('/since/:version', (req, res) => {
   const version = parseInt(req.params.version, 10) || 0;
   const updatedPosts = posts.filter(p => p.version > version);
-  res.json(updatedPosts);
+  res.json(
+    {
+      version: GLOBAL_POST_VERSION,
+      posts: updatedPosts
+    });
 });
 
 // --------------------------------------------------

@@ -9,14 +9,13 @@ class Post {
     this.createdAt = date;
     this.updatedAt = date;
     this.deleted = false;
-    this.version = GLOBAL_VERSION;
+    this.version = GLOBAL_POST_VERSION;
   }
 }
-let GLOBAL_VERSION = 1;
-let NEXT_ID = 1;
+let GLOBAL_POST_VERSION = 1;
 
 function getPostsVersion() {
-  return ++GLOBAL_VERSION;
+  return ++GLOBAL_POST_VERSION;
 }
 
 const posts = [];
@@ -31,12 +30,11 @@ for (let i = 1; i <= 100; i++) {
     )
   );
 }
-const tenDaysFromNow = new Date();
-tenDaysFromNow.setDate(tenDaysFromNow.getDate() + 10);
+
 let newVersion = getPostsVersion()
 for (let i = 0; i < 10; i++) {
   posts[i].version = newVersion;
 }
 
 
-module.exports = { Post, posts, getPostsVersion };
+module.exports = { Post, posts, getPostsVersion, GLOBAL_POST_VERSION };
