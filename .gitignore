@@ -37,5 +37,10 @@ coverage/
 *.swp
 *.swo
 
+# Environment variables (secrets)
+.env
+.env.local
+.env.production
+
 # Express-generator specific
 public/uploads/
