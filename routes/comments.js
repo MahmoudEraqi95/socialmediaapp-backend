@@ -1,8 +1,7 @@
 // routes/comments.js
-// Comment CRUD with nested replies (one level)
-
 const express = require('express');
-const prisma = require('../lib/prisma');
+const commentRepository = require('../repositories/commentRepository');
+const postRepository = require('../repositories/postRepository');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router({ mergeParams: true });
@@ -12,7 +11,6 @@ const MAX_PAGE_SIZE = 100;
 
 // --------------------------------------------------
 // POST /posts/:postId/comments → Create a comment
-// Body: { content, parentId? }
 // --------------------------------------------------
 router.post('/', authenticate, async (req, res) => {
   try {
@@ -23,26 +21,19 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Comment content is required' });
     }
 
-    // Verify the post exists and is not deleted
-    const post = await prisma.post.findUnique({
-      where: { id: postId },
-    });
-
-    if (!post || post.deleted) {
+    // Verify post exists
+    const post = await postRepository.findById(postId);
+    if (!post) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    // If replying to a comment, verify the parent exists
+    // Check parent if nested reply
     if (parentId) {
-      const parent = await prisma.comment.findUnique({
-        where: { id: parentId },
-      });
-
+      const parent = await commentRepository.findById(parentId);
       if (!parent || parent.deleted || parent.postId !== postId) {
         return res.status(404).json({ error: 'Parent comment not found' });
       }
 
-      // Prevent deep nesting — only allow replies to top-level comments
       if (parent.parentId) {
         return res.status(400).json({
           error: 'Cannot reply to a reply. Only one level of nesting is supported.',
@@ -50,31 +41,12 @@ router.post('/', authenticate, async (req, res) => {
       }
     }
 
-    // Create comment and increment counter atomically
-    const [comment] = await prisma.$transaction([
-      prisma.comment.create({
-        data: {
-          authorId: req.user.id,
-          postId,
-          parentId: parentId || null,
-          content: content.trim(),
-        },
-        include: {
-          author: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              avatarUrl: true,
-            },
-          },
-        },
-      }),
-      prisma.post.update({
-        where: { id: postId },
-        data: { commentCount: { increment: 1 } },
-      }),
-    ]);
+    const comment = await commentRepository.create({
+      authorId: req.user.id,
+      postId,
+      parentId,
+      content,
+    });
 
     res.status(201).json(comment);
   } catch (err) {
@@ -85,8 +57,6 @@ router.post('/', authenticate, async (req, res) => {
 
 // --------------------------------------------------
 // GET /posts/:postId/comments → List comments for a post
-// Returns top-level comments with their replies
-// Query params: ?cursor=<commentId>&limit=<n>
 // --------------------------------------------------
 router.get('/', async (req, res) => {
   try {
@@ -97,69 +67,17 @@ router.get('/', async (req, res) => {
     );
     const cursor = req.query.cursor;
 
-    // Verify the post exists
-    const post = await prisma.post.findUnique({
-      where: { id: postId },
-    });
-
-    if (!post || post.deleted) {
+    // Verify post exists
+    const post = await postRepository.findById(postId);
+    if (!post) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    const queryOptions = {
-      take: limit + 1,
-      where: {
-        postId,
-        parentId: null, // Only top-level comments
-        deleted: false,
-      },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            avatarUrl: true,
-          },
-        },
-        replies: {
-          where: { deleted: false },
-          orderBy: { createdAt: 'asc' },
-          take: 3, // Show first 3 replies inline, client can load more
-          include: {
-            author: {
-              select: {
-                id: true,
-                username: true,
-                displayName: true,
-                avatarUrl: true,
-              },
-            },
-          },
-        },
-        _count: {
-          select: { replies: true },
-        },
-      },
-    };
-
-    if (cursor) {
-      queryOptions.skip = 1;
-      queryOptions.cursor = { id: cursor };
-    }
-
-    const comments = await prisma.comment.findMany(queryOptions);
-
-    const hasMore = comments.length > limit;
-    const results = hasMore ? comments.slice(0, limit) : comments;
-    const nextCursor = hasMore ? results[results.length - 1].id : null;
+    const commentData = await commentRepository.getPostComments(postId, { limit, cursor });
 
     res.json({
-      comments: results,
+      ...commentData,
       totalCount: post.commentCount,
-      nextCursor,
-      hasMore,
     });
   } catch (err) {
     console.error('List comments error:', err);
@@ -168,8 +86,7 @@ router.get('/', async (req, res) => {
 });
 
 // --------------------------------------------------
-// GET /comments/:id/replies → Load all replies for a comment
-// Query params: ?cursor=<replyId>&limit=<n>
+// GET /comments/:id/replies → Load replies for a comment
 // --------------------------------------------------
 router.get('/:id/replies', async (req, res) => {
   try {
@@ -180,49 +97,13 @@ router.get('/:id/replies', async (req, res) => {
     );
     const cursor = req.query.cursor;
 
-    const parent = await prisma.comment.findUnique({
-      where: { id },
-    });
-
+    const parent = await commentRepository.findById(id);
     if (!parent || parent.deleted) {
       return res.status(404).json({ error: 'Comment not found' });
     }
 
-    const queryOptions = {
-      take: limit + 1,
-      where: {
-        parentId: id,
-        deleted: false,
-      },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            avatarUrl: true,
-          },
-        },
-      },
-    };
-
-    if (cursor) {
-      queryOptions.skip = 1;
-      queryOptions.cursor = { id: cursor };
-    }
-
-    const replies = await prisma.comment.findMany(queryOptions);
-
-    const hasMore = replies.length > limit;
-    const results = hasMore ? replies.slice(0, limit) : replies;
-    const nextCursor = hasMore ? results[results.length - 1].id : null;
-
-    res.json({
-      replies: results,
-      nextCursor,
-      hasMore,
-    });
+    const replyData = await commentRepository.getReplies(id, { limit, cursor });
+    res.json(replyData);
   } catch (err) {
     console.error('List replies error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -234,9 +115,7 @@ router.get('/:id/replies', async (req, res) => {
 // --------------------------------------------------
 router.put('/:id', authenticate, async (req, res) => {
   try {
-    const existing = await prisma.comment.findUnique({
-      where: { id: req.params.id },
-    });
+    const existing = await commentRepository.findById(req.params.id);
 
     if (!existing || existing.deleted) {
       return res.status(404).json({ error: 'Comment not found' });
@@ -247,26 +126,11 @@ router.put('/:id', authenticate, async (req, res) => {
     }
 
     const { content } = req.body;
-
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ error: 'Comment content is required' });
     }
 
-    const updated = await prisma.comment.update({
-      where: { id: req.params.id },
-      data: { content: content.trim() },
-      include: {
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            avatarUrl: true,
-          },
-        },
-      },
-    });
-
+    const updated = await commentRepository.update(req.params.id, content);
     res.json(updated);
   } catch (err) {
     console.error('Edit comment error:', err);
@@ -279,11 +143,9 @@ router.put('/:id', authenticate, async (req, res) => {
 // --------------------------------------------------
 router.delete('/:id', authenticate, async (req, res) => {
   try {
-    const existing = await prisma.comment.findUnique({
-      where: { id: req.params.id },
-    });
+    const existing = await commentRepository.findById(req.params.id);
 
-    if (!existing) {
+    if (!existing || existing.deleted) {
       return res.status(404).json({ error: 'Comment not found' });
     }
 
@@ -291,18 +153,7 @@ router.delete('/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'You can only delete your own comments' });
     }
 
-    // Soft delete and decrement counter atomically
-    await prisma.$transaction([
-      prisma.comment.update({
-        where: { id: req.params.id },
-        data: { deleted: true },
-      }),
-      prisma.post.update({
-        where: { id: existing.postId },
-        data: { commentCount: { decrement: 1 } },
-      }),
-    ]);
-
+    await commentRepository.softDelete(req.params.id, existing.postId);
     res.json({ success: true, id: req.params.id });
   } catch (err) {
     console.error('Delete comment error:', err);

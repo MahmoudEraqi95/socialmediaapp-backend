@@ -25,11 +25,12 @@ model User {
   deleted      Boolean  @default(false)
 
   // Relations
-  posts    Post[]
-  likes    Like[]
-  comments Comment[]
-  followers Follow[] @relation("UserFollowers")
-  following Follow[] @relation("UserFollowing")
+  posts         Post[]
+  likes         Like[]
+  comments      Comment[]
+  followers     Follow[]       @relation("UserFollowers")
+  following     Follow[]       @relation("UserFollowing")
+  refreshTokens RefreshToken[]
 
   @@index([username])
   @@index([email])
@@ -124,4 +125,22 @@ model Follow {
   @@index([followingId]) // Index for fast follower list retrieval
   @@map("follows")
 }
+
+// ─────────────────────────────────────────────
+// Refresh Tokens (session storage for token renewal)
+// ─────────────────────────────────────────────
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  token     String   @unique @db.Text
+  userId    String   @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
 
