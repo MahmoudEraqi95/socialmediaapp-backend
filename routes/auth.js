@@ -1,14 +1,13 @@
 // routes/auth.js
-// Authentication routes: register, login, profile
+// Authentication routes — controller layer delegates to userRepository
 
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const prisma = require('../lib/prisma');
+const userRepository = require('../repositories/userRepository');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
-
 const SALT_ROUNDS = 12;
 
 // --------------------------------------------------
@@ -18,21 +17,18 @@ router.post('/register', async (req, res) => {
   try {
     const { username, email, password, displayName } = req.body;
 
-    // Validate required fields
     if (!username || !email || !password) {
       return res.status(400).json({
         error: 'username, email, and password are required',
       });
     }
 
-    // Validate username length
     if (username.length < 3 || username.length > 30) {
       return res.status(400).json({
         error: 'Username must be between 3 and 30 characters',
       });
     }
 
-    // Validate password strength
     if (password.length < 8) {
       return res.status(400).json({
         error: 'Password must be at least 8 characters',
@@ -40,15 +36,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Check for existing user
-    const existing = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { username: username.toLowerCase() },
-          { email: email.toLowerCase() },
-        ],
-      },
-    });
-
+    const existing = await userRepository.findByUsernameOrEmail(username, email);
     if (existing) {
       return res.status(409).json({
         error: existing.username === username.toLowerCase()
@@ -60,23 +48,12 @@ router.post('/register', async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        username: username.toLowerCase(),
-        email: email.toLowerCase(),
-        passwordHash,
-        displayName: displayName || username,
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        avatarUrl: true,
-        bio: true,
-        createdAt: true,
-      },
+    // Create user in DB
+    const user = await userRepository.create({
+      username,
+      email,
+      passwordHash,
+      displayName,
     });
 
     // Generate JWT
@@ -106,14 +83,10 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Find user by username or email
-    const where = username
-      ? { username: username.toLowerCase(), deleted: false }
-      : { email: email.toLowerCase(), deleted: false };
+    // Find user
+    const user = await userRepository.findByUsernameOrEmail(username, email);
 
-    const user = await prisma.user.findFirst({ where });
-
-    if (!user) {
+    if (!user || user.deleted) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -152,22 +125,7 @@ router.post('/login', async (req, res) => {
 // --------------------------------------------------
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        avatarUrl: true,
-        bio: true,
-        createdAt: true,
-        updatedAt: true,
-        _count: {
-          select: { posts: true },
-        },
-      },
-    });
+    const user = await userRepository.findById(req.user.id);
 
     if (!user || user.deleted) {
       return res.status(404).json({ error: 'User not found' });
