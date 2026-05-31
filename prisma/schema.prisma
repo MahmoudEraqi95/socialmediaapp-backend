@@ -28,6 +28,8 @@ model User {
   posts    Post[]
   likes    Like[]
   comments Comment[]
+  followers Follow[] @relation("UserFollowers")
+  following Follow[] @relation("UserFollowing")
 
   @@index([username])
   @@index([email])
@@ -104,3 +106,22 @@ model Comment {
   @@index([parentId, createdAt])  // Load replies to a comment
   @@map("comments")
 }
+
+// ─────────────────────────────────────────────
+// Follows (join table using composite PK)
+// ─────────────────────────────────────────────
+model Follow {
+  followerId  String   @db.Uuid
+  followingId String   @db.Uuid
+  createdAt   DateTime @default(now())
+
+  // Relations
+  follower  User @relation("UserFollowing", fields: [followerId], references: [id])
+  following User @relation("UserFollowers", fields: [followingId], references: [id])
+
+  // Composite Primary Key
+  @@id([followerId, followingId])
+  @@index([followingId]) // Index for fast follower list retrieval
+  @@map("follows")
+}
+
